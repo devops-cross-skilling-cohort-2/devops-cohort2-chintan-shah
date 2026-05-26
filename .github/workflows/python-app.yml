@@ -37,3 +37,31 @@ jobs:
     - name: Test with pytest
       run: |
         python -m pytest
+
+    - name: Start Uvicorn server in background
+      run: |
+        # start the app in background and record pid
+        python -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --log-level warning &
+        echo $! > uvicorn.pid
+        # wait for the server to be ready (timeout ~30s)
+        for i in {1..30}; do
+          if curl -sSf http://127.0.0.1:8000/health >/dev/null 2>&1; then
+            echo "server ready"
+            break
+          fi
+          sleep 1
+        done
+
+    - name: Curl /health endpoint
+      run: |
+        # fetch response (will fail the step if non-2xx)
+        resp=$(curl -sS --fail --retry 5 --retry-delay 1 http://127.0.0.1:8000/health)
+        echo "API response: $resp"
+        echo "Health check successful"
+
+    - name: Stop Uvicorn server
+      if: always()
+      run: |
+        if [ -f uvicorn.pid ]; then kill "$(cat uvicorn.pid)" || true; fi
+        # ensure no leftover uvicorn processes
+        pkill -f "uvicorn app.main:app" || true
